@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Retail Dashboard</title>
+
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial;
+            background: #f4f4f4;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .card {
+            background: white;
+            width: 300px;
+            margin: auto;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            margin-bottom: 40px;
+        }
+
+        .value {
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        canvas {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            margin-top: 30px;
+        }
+        .kpi-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background: white;
+            width: 220px;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        .title {
+            font-size: 14px;
+            color: gray;
+        }
+
+        .value {
+            font-size: 22px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- KPI Card -->
+    <div class="kpi-container">
+        <div class="card">
+            <div class="title">Total Revenue</div>
+            <div class="value" id="revenue">Loading...</div>
+        </div>
+
+        <div class="card">
+            <div class="title">Total Orders</div>
+            <div class="value" id="orders">Loading...</div>
+        </div>
+
+        <div class="card">
+            <div class="title">Total Customers</div>
+            <div class="value" id="customers">Loading...</div>
+        </div>
+
+        <div class="card">
+            <div class="title">Avg Order Value</div>
+            <div class="value" id="avgOrder">Loading...</div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <canvas id="monthlyChart" width="800" height="400"></canvas>
+    <canvas id="topProductsChart" width="800" height="400"></canvas>
+
+    <div style="margin-bottom: 20px;">
+        <select id="yearFilter">
+            <option value="">All Years</option>
+            <option value="2024">2024</option>
+            <option value="2025">2025</option>
+        </select>
+
+        <input type="text" id="regionFilter" placeholder="Enter State (e.g., Texas)">
+
+        <button onclick="loadData()">Apply Filter</button>
+    </div>
+
+<script>
+let monthlyChartInstance;
+let topProductsChartInstance;
+function loadData() {
+
+    const year = document.getElementById("yearFilter").value;
+    const region = document.getElementById("regionFilter").value;
+
+    const queryParams =
+        "?year=" + year + "&region=" + region;
+
+    // KPI
+    fetch("/total-revenue")
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById("revenue").innerText =
+                "₹ " + data.total_revenue.toLocaleString();
+        });
+
+    // Monthly Chart
+    fetch("/monthly-sales" + queryParams)
+    .then(res => res.json())
+    .then(data => {
+
+        const labels = data.map(item => item.year + "-" + item.month);
+        const revenue = data.map(item => item.revenue);
+
+        if (monthlyChartInstance) {
+            monthlyChartInstance.destroy();
+        }
+
+        monthlyChartInstance = new Chart(
+            document.getElementById("monthlyChart"),
+            {
+                type: "line",
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: "Monthly Revenue",
+                        data: revenue,
+                        borderColor: "blue",
+                        fill: false
+                    }]
+                }
+            }
+        );
+    });
+    // Top Products Chart
+    fetch("/top-products" + queryParams)
+        .then(res => res.json())
+        .then(data => {
+
+            const labels = data.map(item => item.product);
+            const revenue = data.map(item => item.revenue);
+
+            if (topProductsChartInstance) {
+                topProductsChartInstance.destroy();
+            }
+
+            topProductsChartInstance = new Chart(
+                document.getElementById("topProductsChart"),
+                {
+                    type: "bar",
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: "Top Products",
+                            data: revenue,
+                            backgroundColor: "green"
+                        }]
+                    }
+                }
+            );
+        });
+
+        // Total Revenue
+    fetch("/total-revenue")
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById("revenue").innerText =
+                "₹ " + data.total_revenue.toLocaleString();
+        });
+
+    // Total Orders
+    fetch("/total-orders")
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById("orders").innerText =
+                data.total_orders.toLocaleString();
+        });
+
+    // Total Customers
+    fetch("/total-customers")
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById("customers").innerText =
+                data.total_customers.toLocaleString();
+        });
+
+    // Avg Order Value
+    fetch("/avg-order-value")
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById("avgOrder").innerText =
+                "₹ " + data.avg_order_value.toFixed(2);
+        });
+}
+
+// Load initially
+loadData();
+
+</script>
+
+</body>
+</html>
