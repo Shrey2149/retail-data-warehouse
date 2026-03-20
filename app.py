@@ -1,5 +1,7 @@
 from flask import Flask, jsonify, render_template, request
 from sqlalchemy import create_engine, text
+import joblib
+import pandas as pd
 
 app = Flask(__name__)
 
@@ -9,9 +11,86 @@ host = "localhost"
 port = "5432"
 database = "retail_dw"
 
+model = joblib.load("churn_model.pkl")
+scaler = joblib.load("scaler.pkl")
 engine = create_engine(
     f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{database}"
 )
+
+@app.route("/predict-churn", methods=["GET"])
+def predict_churn():
+
+    query = """
+        SELECT 
+            customer_id,
+            SUM(total_amount) AS total_spend,
+            AVG(total_amount) AS avg_order_value,
+            COUNT(transaction_id) AS purchase_frequency,
+            MAX(transaction_date) AS last_purchase
+        FROM fact_sales
+        GROUP BY customer_id
+    """
+
+    df = pd.read_sql(query, engine)
+
+    # Recency
+    today = pd.to_datetime(df["last_purchase"]).max()
+    df["recency"] = (today - pd.to_datetime(df["last_purchase"])).dt.days
+
+    # Dummy customer_age (optional simple version)
+    df["customer_age"] = 365
+
+    features = df[[
+        "total_spend",
+        "avg_order_value",
+        "purchase_frequency",
+        "recency",
+        "customer_age"
+    ]]
+
+    scaled = scaler.transform(features)
+
+    df["churn_probability"] = model.predict_proba(scaled)[:, 1]
+
+    # Risk categories
+    def risk(p):
+        if p > 0.7:
+            return "High"
+        elif p > 0.4:
+            return "Medium"
+        else:
+            return "Low"
+
+    df["risk"] = df["churn_probability"].apply(risk)
+
+    return jsonify(df[[
+        "customer_id",
+        "churn_probability",
+        "risk"
+    ]].to_dict(orient="records"))
+
+@app.route("/market-basket")
+def market_basket():
+    df = pd.read_csv("ml/frequent_itemsets.csv")
+
+    data = df.to_dict(orient="records")
+
+    return jsonify(data)
+
+
+@app.route("/churn-metrics")
+def churn_metrics():
+
+    df = pd.read_json("http://127.0.0.1:5001/predict-churn")
+
+    churn_rate = (df["risk"] == "High").mean()
+
+    high_risk_count = (df["risk"] == "High").sum()
+
+    return jsonify({
+        "churn_rate": float(churn_rate),
+        "high_risk_customers": int(high_risk_count)
+    })
 
 @app.route("/")
 def home():
@@ -27,41 +106,43 @@ def total_revenue():
     connection.close()
     return jsonify({"total_revenue": float(revenue) if revenue else 0})
 
-@app.route("/monthly-sales", methods=["GET"])
+@app.route("/monthly-sales")
 def monthly_sales():
+
     year = request.args.get("year")
     region = request.args.get("region")
 
-    connection = engine.connect()
     query = """
-        SELECT dt.year,
-               dt.month,
-               SUM(fs.total_amount) AS revenue
+        SELECT 
+            EXTRACT(YEAR FROM fs.transaction_date) AS year,
+            EXTRACT(MONTH FROM fs.transaction_date) AS month,
+            SUM(fs.total_amount) AS revenue
         FROM fact_sales fs
-        JOIN dim_time dt ON fs.date_id = dt.date_id
         JOIN dim_customer dc ON fs.customer_id = dc.customer_id
         WHERE 1=1
     """
+
     if year:
-        query += f" AND dt.year = {int(year)}"
+        query += f" AND EXTRACT(YEAR FROM fs.transaction_date) = {int(year)}"
+
     if region:
         query += f" AND dc.state = '{region}'"
 
-    query += """ 
-            GROUP BY dt.year, dt.month 
-            ORDER BY dt.year, dt.month;
+    query += """
+        GROUP BY year, month
+        ORDER BY year, month;
     """
-    
-    result = connection.execute(text(query))    
-    data = [
-        {
-            "year": row[0],
-            "month": row[1],
-            "revenue": float(row[2])
-        }
-        for row in result
-    ]
-    connection.close()
+
+    with engine.connect() as connection:
+        result = connection.execute(text(query))
+        data = [
+            {
+                "year": int(row.year),
+                "month": int(row.month),
+                "revenue": float(row.revenue)
+            }
+            for row in result
+        ]
 
     return jsonify(data)
 
@@ -146,14 +227,15 @@ def top_products():
                SUM(fs.total_amount) AS revenue
         FROM fact_sales fs
         JOIN dim_product dp ON fs.product_id = dp.product_id
-        JOIN dim_time dt ON fs.date_id = dt.date_id
         JOIN dim_customer dc ON fs.customer_id = dc.customer_id
         WHERE 1=1
     """
 
+    # Year filter (using transaction_date)
     if year:
-        query += f" AND dt.year = {int(year)}"
+        query += f" AND EXTRACT(YEAR FROM fs.transaction_date) = {int(year)}"
 
+    # Region filter
     if region:
         query += f" AND dc.state = '{region}'"
 
@@ -178,5 +260,5 @@ def top_products():
     return jsonify(data)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=5001)
 

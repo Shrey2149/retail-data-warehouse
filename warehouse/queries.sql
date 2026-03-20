@@ -23,14 +23,12 @@ ORDER BY revenue DESC;
 
 
 -- 3️⃣ Monthly Sales
-SELECT dt.year,
-       dt.month,
-       SUM(fs.total_amount) AS monthly_revenue
-FROM fact_sales fs
-JOIN dim_time dt
-  ON fs.date_id = dt.date_id
-GROUP BY dt.year, dt.month
-ORDER BY dt.year, dt.month;
+SELECT EXTRACT(YEAR FROM transaction_date) AS year,
+       EXTRACT(MONTH FROM transaction_date) AS month,
+       SUM(total_amount) AS monthly_revenue
+FROM fact_sales
+GROUP BY year, month
+ORDER BY year, month;
 
 
 
