@@ -1,21 +1,18 @@
 from flask import Flask, jsonify, render_template, request
 from sqlalchemy import create_engine, text
+import os
 import joblib
 import pandas as pd
 
 app = Flask(__name__)
 
-username = "postgres"
-password = "shreythegreat"
-host = "localhost"
-port = "5432"
-database = "retail_dw"
+DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_engine(DATABASE_URL)
 
 model = joblib.load("churn_model.pkl")
 scaler = joblib.load("scaler.pkl")
-engine = create_engine(
-    f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{database}"
-)
+
+
 
 @app.route("/predict-churn", methods=["GET"])
 def predict_churn():
@@ -81,7 +78,7 @@ def market_basket():
 @app.route("/churn-metrics")
 def churn_metrics():
 
-    df = pd.read_json("http://127.0.0.1:5001/predict-churn")
+    df = pd.read_json(request.url_root + "predict-churn")
 
     churn_rate = (df["risk"] == "High").mean()
 
